@@ -34,10 +34,10 @@ class marm_qafooprofiler_oxshopcontrol extends marm_qafooprofiler_oxshopcontrol_
     {
         $oConfig = oxRegistry::getConfig();
         
-        $sApiKey = $oConfig->getShopConfVar( 'sApiKey', null, 'marm/qafooprofiler' );
+        $sApiKey = $oConfig->getShopConfVar( 'sApiKey', null, 'module:marm/qafooprofiler' );
         
-        $isDevMode = (bool)$oConfig->getShopConfVar( 'isDevMode', null, 'marm/qafooprofiler' );
-        
+        $isDevMode = (bool)$oConfig->getShopConfVar( 'isDevMode', null, 'module:marm/qafooprofiler' );
+
         if( !$oConfig->isProductiveMode() && $isDevMode )
         {
             \QafooLabs\Profiler::startDevelopment( $sApiKey );
