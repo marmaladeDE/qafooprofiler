@@ -1,10 +1,22 @@
 <?php
+/**
+ * This file is part of a marmalade Module for OXID eShop CE/PE/EE.
+ *
+ * It is free software: you can redistribute it and/or modify
+ * it under the terms of the MIT License.
+ *
+ * @link http://marmalade.de
+ * @copyright (C) marmalade.de 2014
+ * @author Joscha Krug <support@marmalade.de>
+ */
 
 if( false )
 {
     class marm_qafooprofiler_oxshopcontrol_parent extends oxShopControl{}
 }
 
+include(oxRegistry::getConfig()->getModulesDir() . 'marm/qafooprofiler/libs/QafooProfiler.php');
+        
 class marm_qafooprofiler_oxshopcontrol extends marm_qafooprofiler_oxshopcontrol_parent
 {
     public function start( $sClass = null, $sFunction = null, $aParams = null, $aViewsChain = null )
@@ -13,27 +25,31 @@ class marm_qafooprofiler_oxshopcontrol extends marm_qafooprofiler_oxshopcontrol_
         
         parent::start( $sClass, $sFunction, $aParams, $aViewsChain );
         
+        $sClass = $this->_getControllerToLoad( $sClass );
+        
         $this->setProfilerTransaction( $sClass );
     }
     
     public function startProfiler()
     {
-        if( class_exists( '\QafooLabs\Profiler' ) )
+        $oConfig = oxRegistry::getConfig();
+        
+        $sApiKey = $oConfig->getShopConfVar( 'sApiKey', null, 'marm/qafooprofiler' );
+        
+        $isDevMode = (bool)$oConfig->getShopConfVar( 'isDevMode', null, 'marm/qafooprofiler' );
+        
+        if( !$oConfig->isProductiveMode() && $isDevMode )
         {
-            
-            $sApiKey = oxRegistry::getConfig()->getShopConfVar( 'sApiKey', null, 'marm/qafooprofiler' );
-            
             \QafooLabs\Profiler::startDevelopment( $sApiKey );
-            
-            //\QafooLabs\Profiler::start( $sApiKey );
+        }
+        else
+        {
+            \QafooLabs\Profiler::start( $sApiKey );
         }
     }
     
     public function setProfilerTransaction( $sController )
     {
-        if( class_exists( '\QafooLabs\Profiler' ) )
-        {
-            \QafooLabs\Profiler::setTransactionName( $sController );
-        }
+        \QafooLabs\Profiler::setTransactionName( $sController );
     }
 }
