@@ -450,7 +450,7 @@ class Profiler
         self::$customVars = array();
         self::$customTimers = array();
         self::$customTimerCount = 0;
-        self::$operationName = null;
+        self::$operationName = 'default';
         self::$error = false;
         self::$operationType = $type;
         self::$started = microtime(true);
@@ -485,7 +485,7 @@ class Profiler
 
     public static function setTransactionName($name)
     {
-        self::$operationName = $name;
+        self::$operationName = !empty($name) ? $name : 'empty';
     }
 
     /**
