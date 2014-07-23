@@ -5,17 +5,20 @@ This module integrates and activates the Qafoo Profiler for your OXID eShop.
 
 Requirements
 ------------
-Qafoo Profiler Account and API Key
-PHP 5.3+
-OXID eShop 4.8+ / 5.1+
+*    Qafoo Profiler Account and API Key
+
+*    PHP 5.3+
+
+*    OXID eShop 4.8+ / 5.1+
 
 Installation
 ------------
-Place the module in `modules/marm/qafooprofiler/`
-If not already there make an empty `vendormetadata.php` file in
-`modules/marm/`.
+1.    Place the module in `modules/marm/qafooprofiler/`
 
-Activate and configure the module in the backend.
+2.    If not already there make an empty `vendormetadata.php` file in
+      `modules/marm/`.
+
+3.    Activate and configure the module in the backend.
 
 License
 -------
