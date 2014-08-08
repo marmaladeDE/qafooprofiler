@@ -14,10 +14,10 @@ if( false )
 {
     class marm_qafooprofiler_oxshopcontrol_parent extends oxShopControl{}
 }
-if(!class_exists('\\QafooLabs\\Profiler\\Backend'))
+/*if(!class_exists('\\QafooLabs\\Profiler\\Backend'))
 {
     include(oxRegistry::getConfig()->getModulesDir() . 'marm/qafooprofiler/libs/QafooProfiler.php');
-}
+}*/
         
 class marm_qafooprofiler_oxshopcontrol extends marm_qafooprofiler_oxshopcontrol_parent
 {
