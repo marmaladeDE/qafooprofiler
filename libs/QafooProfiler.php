@@ -1,16 +1,16 @@
 <?php
 namespace QafooLabs\Profiler;
-/**
- * QafooLabs Profiler
- *
- * LICENSE
- *
- * This source file is subject to the MIT license that is bundled
- * with this package in the file LICENSE.txt.
- * If you did not receive a copy of the license and are unable to
- * obtain it through the world-wide-web, please send an email
- * to kontakt@beberlei.de so I can send you a copy immediately.
- */
+    /**
+     * QafooLabs Profiler
+     *
+     * LICENSE
+     *
+     * This source file is subject to the MIT license that is bundled
+     * with this package in the file LICENSE.txt.
+     * If you did not receive a copy of the license and are unable to
+     * obtain it through the world-wide-web, please send an email
+     * to kontakt@beberlei.de so I can send you a copy immediately.
+     */
 
 
 /**
@@ -30,7 +30,7 @@ class CurlBackend implements Backend
     private $connectionTimeout;
     private $timeout;
 
-    public function __construct($certificationFile = null, $connectionTimeout = 1, $timeout = 1)
+    public function __construct($certificationFile = null, $connectionTimeout = 3, $timeout = 3)
     {
         $this->certificationFile = $certificationFile;
         $this->connectionTimeout = $connectionTimeout;
@@ -94,6 +94,7 @@ class CurlBackend implements Backend
             curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
         }
 
+        curl_setopt($ch, CURLOPT_FAILONERROR,true);
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, array(
@@ -101,7 +102,9 @@ class CurlBackend implements Backend
             "User-Agent: QafooLabs Profiler Collector DevMode"
         ));
 
-        curl_exec($ch);
+        if (curl_exec($ch) === false) {
+            syslog(LOG_WARNING, "Qafoo Profiler DevMode cURL failed: " . curl_error($ch));
+        }
     }
 }
 /**
@@ -282,8 +285,55 @@ class Profiler
     private static $sampling = false;
     private static $correlationId;
     private static $backend;
-    private static $callIds;
     private static $uid;
+
+    private static function getDefaultArgumentFunctions()
+    {
+        return array(
+            'PDOStatement::execute',
+            'PDO::exec',
+            'PDO::query',
+            'mysql_query',
+            'mysqli_query',
+            'mysqli::query',
+            'curl_exec',
+            'file_get_contents',
+            'file_put_contents',
+            'Twig_Template::render',
+            'Smarty::fetch',
+            'Smarty_Internal_TemplateBase::fetch',
+        );
+    }
+
+    private static function getDefaultLayerFunctions()
+    {
+        return array(
+            'PDO::__construct' => 'db',
+            'PDO::exec' => 'db',
+            'PDO::query' => 'db',
+            'PDO::commit' => 'db',
+            'PDOStatement::execute' => 'db',
+            'mysql_query' => 'db',
+            'mysqli_query' => 'db',
+            'mysqli::query' => 'db',
+            'curl_exec' => 'http',
+            'curl_multi_exec' => 'http',
+            'curl_multi_select' => 'http',
+            'file_get_contents' => 'io',
+            'file_put_contents' => 'io',
+            'fopen' => 'io',
+            'fsockopen' => 'io',
+            'fgets' => 'io',
+            'fputs' => 'io',
+            'fwrite' => 'io',
+            'file_exists' => 'io',
+            'MemcachePool::get' => 'cache',
+            'MemcachePool::set' => 'cache',
+            'Memcache::connect' => 'cache',
+            'apc_fetch' => 'cache',
+            'apc_store' => 'cache',
+        );
+    }
 
     public static function setBackend(Profiler\Backend $backend)
     {
@@ -295,10 +345,10 @@ class Profiler
      *
      * This will always generate a full profile and send it to the profiler via cURL.
      */
-    public static function startDevelopment($apiKey, $flags = 0, array $options = array())
+    public static function startDevelopment($apiKey, array $options = array())
     {
         self::setBackend(new Profiler\CurlBackend());
-        self::start($apiKey, 100, $flags, $options);
+        self::start($apiKey, 100, $options);
     }
 
     /**
@@ -329,12 +379,11 @@ class Profiler
      *
      * @param string            $apiKey Application key can be found in "Settings" tab of Profiler UI
      * @param int               $sampleRate Sample rate in full percent (1= 1%, 20 = 20%). Defaults to every fifth request
-     * @param int               $flags XHProf option flags.
      * @param array             $options XHProf options.
      *
      * @return void
      */
-    public static function start($apiKey, $sampleRate = 20, $flags = 0, array $options = array())
+    public static function start($apiKey, $sampleRate = 20, array $options = array())
     {
         if (self::$started) {
             return;
@@ -344,14 +393,9 @@ class Profiler
             return;
         }
 
-        $config = self::loadConfig($apiKey);
-
-        if (isset($config['general']['enabled']) && !$config['general']['enabled']) {
+        if (isset($_SERVER['QAFOO_PROFILER_DISABLED']) && $_SERVER['QAFOO_PROFILER_DISABLED']) {
             return;
         }
-
-        $sampleRate = isset($config['general']['sample_rate']) ? $config['general']['sample_rate'] : $sampleRate;
-        $flags = isset($config['general']['xhprof_flags']) ? $config['general']['xhprof_flags'] : $flags;
 
         self::init(php_sapi_name() == "cli" ? self::TYPE_WORKER : self::TYPE_WEB, $apiKey);
 
@@ -359,45 +403,47 @@ class Profiler
             return;
         }
 
+        $sampleRate = isset($_SERVER['QAFOO_PROFILER_SAMPLERATE']) ? intval($_SERVER['QAFOO_PROFILER_SAMPLERATE']) : $sampleRate;
+        $flags = isset($_SERVER['QAFOO_PROFILER_FLAGS']) ? intval($_SERVER['QAFOO_PROFILER_FLAGS']) : 0;
+
         self::$profiling = self::decideProfiling($sampleRate);
 
         if (self::$profiling == true) {
+            if (isset($_SERVER['QAFOO_PROFILER_ENABLE_ARGUMENTS']) && $_SERVER['QAFOO_PROFILER_ENABLE_ARGUMENTS']) {
+                if (!isset($options['argument_functions'])) {
+                    $options['argument_functions'] = self::getDefaultArgumentFunctions();
+                }
+            }
+
             xhprof_enable($flags, $options); // full profiling mode
             return;
         }
 
-        // careless hack to do this with a custom version, need to fork own 'xhprof' extension soon.
-        if (version_compare(phpversion('xhprof'), '0.9.5') < 0) {
+        if (!isset($_SERVER['QAFOO_PROFILER_ENABLE_LAYERS']) || !$_SERVER['QAFOO_PROFILER_ENABLE_LAYERS']) {
             return;
         }
 
-        if (isset($config['calls'])) {
-            xhprof_enable(0, array('functions' => array_values($config['calls'])));
-            self::$sampling = true;
-            self::$callIds = $config['calls'];
-        }
-    }
-
-    private static function loadConfig($apiKey)
-    {
-        $config = array();
-        if (strpos($apiKey, '..') === false && file_exists('/etc/qafooprofiler/' . $apiKey . '.ini')) {
-            $config = parse_ini_file('/etc/qafooprofiler/' . $apiKey . '.ini', true);
+        // careless hack to do this with a custom version, need to fork own 'xhprof' extension soon.
+        if (version_compare(phpversion('xhprof'), '0.9.7') < 0) {
+            return;
         }
 
-        if (isset($config['general']['backend']) && $config['general']['backend'] === 'curl') {
-            self::setBackend(new Profiler\CurlBackend());
+        if (!isset($options['layers'])) {
+            $options['layers'] = self::getDefaultLayerFunctions();
         }
 
-        return $config;
+        xhprof_layers_enable($options['layers']);
+        self::$sampling = true;
     }
 
     private static function decideProfiling($treshold)
     {
         if (isset($_GET["_qprofiler"]) && $_GET["_qprofiler"] === md5(self::$apiKey)) {
+            self::$correlationId = "dev-force"; // make sure Daemon keeps the profile.
             return true;
         }
 
+        // required to manipulate sampling and correlation from load testing tool.
         if (isset($_SERVER["HTTP_X_QPTRESHOLD"]) && isset($_SERVER["HTTP_X_QPHASH"])) {
             if (hash_hmac("sha256", $_SERVER["HTTP_X_QPTRESHOLD"], self::$apiKey) === $_SERVER["HTTP_X_QPHASH"]) {
                 $treshold = intval($_SERVER["HTTP_X_QPTRESHOLD"]);
@@ -407,6 +453,7 @@ class Profiler
                 }
             }
         }
+
         if (isset($_SERVER["QAFOO_PROFILER_TRESHOLD"])) {
             $treshold = intval($_SERVER["QAFOO_PROFILER_TRESHOLD"]);
         }
@@ -454,7 +501,6 @@ class Profiler
         self::$error = false;
         self::$operationType = $type;
         self::$started = microtime(true);
-        self::$callIds = null;
         self::$uid = null;
     }
 
@@ -618,9 +664,10 @@ class Profiler
         $data = null;
         $sampling = self::$sampling;
 
-        if (self::$profiling || self::$sampling) {
+        if (self::$sampling || self::$profiling) {
             $data = xhprof_disable();
         }
+
         $duration = intval(round((microtime(true) - self::$started) * 1000));
 
         self::$started = false;
@@ -629,7 +676,6 @@ class Profiler
 
         if (self::$error) {
             self::storeError(self::$operationName, self::$error, $duration);
-            return;
         }
 
         if (!self::$operationName) {
@@ -639,36 +685,15 @@ class Profiler
         if (!$sampling && $data) {
             self::storeProfile(self::$operationName, $data, self::$customTimers, self::$operationType);
         } else {
-            $callData = array();
+            $callData = $sampling ? $data : array();
 
-            if ($sampling) {
-                // TODO: Can we force Xhprof extension to do this directly?
-                $parsedData = array();
-
-                foreach ($data as $parentChild => $childData) {
-                    if ($parentChild === 'main()') {
-                        continue;
-                    }
-
-                    list ($parent, $child) = explode('==>', $parentChild);
-
-                    if (!isset($parsedData[$child])) {
-                        $parsedData[$child] = array('wt' => 0, 'ct' => 0);
-                    }
-                    $parsedData[$child]['wt'] += $childData['wt'];
-                    $parsedData[$child]['ct'] += $childData['ct'];
-                }
-
-                foreach (self::$callIds as $callId => $fn) {
-                    if (isset($parsedData[$fn])) {
-                        $callData["c$callId"] = $parsedData[$fn];
-                    }
-                }
-
-                $duration = intval(round($data['main()']['wt'] / 1000));
-            }
-
-            self::storeMeasurement(self::$operationName, $duration, self::$operationType, $callData);
+            self::storeMeasurement(
+                self::$operationName,
+                $duration,
+                self::$operationType,
+                $callData,
+                (self::$error !== false)
+            );
         }
     }
 
@@ -690,6 +715,15 @@ class Profiler
         if (!isset($data["main()"]["wt"]) || !$data["main()"]["wt"]) {
             return;
         }
+
+        if (isset($_SERVER['REQUEST_METHOD']) && !isset(self::$customVars['method'])) {
+            self::$customVars['method'] = $_SERVER["REQUEST_METHOD"];
+        }
+
+        if (isset($_SERVER['REQUEST_URI']) && !isset(self::$customVars['url'])) {
+            self::$customVars['url'] = (isset($_SERVER['HTTPS']) ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . self::getRequestUri();
+        }
+
         self::$backend->storeProfile(array(
             "uid" => self::getProfileTraceUuid(),
             "op" => $operationName,
@@ -703,7 +737,7 @@ class Profiler
         ));
     }
 
-    private static function storeMeasurement($operationName, $duration, $operationType, array $callData)
+    private static function storeMeasurement($operationName, $duration, $operationType, array $callData, $isError)
     {
         self::$backend->storeMeasurement(array(
             "op" => $operationName,
@@ -711,7 +745,8 @@ class Profiler
             "wt" => $duration,
             "mem" => round(memory_get_peak_usage() / 1024),
             "apiKey" => self::$apiKey,
-            "c" => $callData
+            "c" => $callData,
+            "err" => $isError,
         ));
     }
 
@@ -736,14 +771,17 @@ class Profiler
             return basename($_SERVER["argv"][0]);
         }
 
-        $uri = strpos($_SERVER["REQUEST_URI"], "?")
-            ? substr($_SERVER["REQUEST_URI"], 0, strpos($_SERVER["REQUEST_URI"], "?"))
-            : $_SERVER["REQUEST_URI"];
-
-        return $_SERVER["REQUEST_METHOD"] . " " . $uri;
+        return $_SERVER["REQUEST_METHOD"] . " " . self::getRequestUri();
     }
 
-    public static function logFatal($message, $file, $line, $type = null)
+    protected static function getRequestUri()
+    {
+        return strpos($_SERVER["REQUEST_URI"], "?")
+            ? substr($_SERVER["REQUEST_URI"], 0, strpos($_SERVER["REQUEST_URI"], "?"))
+            : $_SERVER["REQUEST_URI"];
+    }
+
+    public static function logFatal($message, $file, $line, $type = null, $trace = null)
     {
         if (self::$error) {
             return;
@@ -755,12 +793,57 @@ class Profiler
 
         $message = Profiler\SqlAnonymizer::anonymize($message);
 
-        self::$error = array("message" => $message, "file" => $file, "line" => $line, "type" => $type);
+        self::$error = array(
+            "message" => $message,
+            "file" => $file,
+            "line" => $line,
+            "type" => $type,
+            "trace" => $trace ? self::anonymizeTrace($trace) : null,
+        );
+    }
+
+    public static function logException(\Exception $e)
+    {
+        $exceptionClass = get_class($e);
+        $exceptionCode = $e->getCode();
+
+        $message = Profiler\SqlAnonymizer::anonymize($e->getMessage());
+
+        self::$error = array(
+            "message" => $message,
+            "file" => $e->getFile(),
+            "line" => $e->getLine(),
+            "type" => $exceptionClass . ($exceptionCode != 0 ? sprintf('(%s)', $exceptionCode) : ''),
+            "trace" => self::anonymizeTrace($e->getTrace()),
+        );
+    }
+
+    private static function anonymizeTrace(array $trace)
+    {
+        foreach ($trace as $traceLineId => $traceLine) {
+            if (isset($traceLine['args'])) {
+
+                foreach ($traceLine['args'] as $argId => $arg) {
+                    if (is_object($arg)) {
+                        $traceLine['args'][$argId] = get_class($arg);
+                    } else {
+                        $traceLine['args'][$argId] = gettype($arg);
+                    }
+                }
+                $trace[$traceLineId] = $traceLine;
+
+            }
+        }
+        return $trace;
     }
 
     public static function shutdown()
     {
-        $lastError = error_get_last();
+        if (version_compare(phpversion('xhprof'), '0.9.7') < 0) {
+            $lastError = error_get_last();
+        } else {
+            $lastError = xhprof_last_fatal_error();
+        }
 
         if ($lastError && ($lastError["type"] === E_ERROR || $lastError["type"] === E_PARSE || $lastError["type"] === E_COMPILE_ERROR)) {
             self::logFatal($lastError["message"], $lastError["file"], $lastError["line"], $lastError["type"]);
@@ -806,5 +889,24 @@ class Profiler
         }
 
         return self::$uid;
+    }
+
+    /**
+     * Render HTML that the profiling toolbar picks up to display inline development information.
+     *
+     * This method does not display the html, it just returns it.
+     *
+     * @return string
+     */
+    public static function renderToolbarBootstrapHtml()
+    {
+        if (self::$started == false || self::$sampling === true) {
+            return;
+        }
+
+        return sprintf(
+            '<div id="QafooLabs-Profiler-Profile-Id" data-trace-id="%s" style="display:none !important;" aria-hidden="true"></div>',
+            self::getProfileTraceUuid()
+        );
     }
 }
