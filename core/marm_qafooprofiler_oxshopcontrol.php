@@ -10,6 +10,10 @@
  * @author Joscha Krug <support@marmalade.de>
  */
 
+if (false) {
+   class marm_qafooprofiler_oxshopcontrol_parent extends oxShopControl{}
+}
+
 if (!class_exists('\QafooLabs\Profiler', false)) {
     include(oxRegistry::getConfig()->getModulesDir() . 'marm/qafooprofiler/libs/QafooProfiler.php');
 }
