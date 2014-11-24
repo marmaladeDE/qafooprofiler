@@ -26,10 +26,6 @@ class marm_qafooprofiler_oxshopcontrol extends marm_qafooprofiler_oxshopcontrol_
         $this->startProfiler();
 
         parent::start( $sClass, $sFunction, $aParams, $aViewsChain );
-
-        $sClass = $this->_getControllerToLoad( $sClass );
-
-        $this->setProfilerTransaction( $sClass );
     }
 
     public function startProfiler()
@@ -40,6 +36,8 @@ class marm_qafooprofiler_oxshopcontrol extends marm_qafooprofiler_oxshopcontrol_
 
         $isDevMode = (bool)$oConfig->getShopConfVar( 'isDevMode', null, 'module:marm/qafooprofiler' );
 
+        \QafooLabs\Profiler::detectFrameworkTransaction(\QafooLabs\Profiler::FRAMEWORK_OXID);
+
         if( !$oConfig->isProductiveMode() && $isDevMode )
         {
             \QafooLabs\Profiler::startDevelopment( $sApiKey );
@@ -48,10 +46,5 @@ class marm_qafooprofiler_oxshopcontrol extends marm_qafooprofiler_oxshopcontrol_
         {
             \QafooLabs\Profiler::start( $sApiKey );
         }
-    }
-
-    public function setProfilerTransaction( $sController )
-    {
-        \QafooLabs\Profiler::setTransactionName( $sController );
     }
 }
